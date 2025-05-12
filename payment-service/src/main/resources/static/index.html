@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Page</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+
+    <h1>Book Your Ticket</h1>
+    <button id="pay-button">Pay Now</button>
+
+    <script>
+        document.getElementById('pay-button').onclick = function () {
+            // Step 1: Fetch amount from backend
+            fetch('http://localhost:8085/payments/get-amount')
+                .then(response => {
+                    if (!response.ok) {
+                        return response.text().then(text => { throw new Error(`Backend Error: ${text}`); });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const amount = data.amount;  // ✅ Convert to paisa
+                    console.log("Amount from Backend:", amount);
+
+                    // Step 2: Create order with backend amount
+                    return fetch('http://localhost:8085/payments/create-order', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            amount: amount,  
+                            currency: "INR"
+                        })
+                    });
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.text().then(text => { throw new Error(`Order Creation Error: ${text}`); });
+                    }
+                    return response.json();
+                })
+                .then(order => {
+                    console.log("Order received:", order);
+
+                    // Step 3: Initialize Razorpay Payment
+                    const options = {
+                        key: "rzp_test_S0r9gRKO9Q56Ag",
+                        amount: order.amount,
+                        currency: order.currency,
+                        name: "ANUJ CHOUDHARY",
+                        description: "Test Transaction",
+                        order_id: order.id,
+                        handler: function (response) {
+                            console.log("Payment Successful!", response);
+
+                            // Step 4: Log Payment Status in Backend
+                            const paymentStatus = {
+                                payment_id: response.razorpay_payment_id,
+                                order_id: response.razorpay_order_id,
+                                status: "SUCCESS"
+                            };
+
+                            fetch('http://localhost:8085/payments/payment-status', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify(paymentStatus)
+                            });
+                        }
+                    };
+
+                    const rzp = new Razorpay(options);
+                    rzp.open();
+
+                    // Handle payment failure
+                    rzp.on('payment.failed', function (response) {
+                        console.log("Payment Failed!", response);
+
+                        const failedStatus = {
+                            error_code: response.error.code,
+                            error_description: response.error.description,
+                            order_id: response.error.metadata.order_id,
+                            payment_id: response.error.metadata.payment_id,
+                            status: "FAILED"
+                        };
+
+                        fetch('http://localhost:8085/payments/payment-status', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(failedStatus)
+                        });
+                    });
+                })
+                .catch(err => console.error("Error Occurred:", err));
+        };
+    </script>
+
+</body>
+</html>
